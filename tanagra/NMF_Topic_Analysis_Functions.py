@@ -60,6 +60,7 @@ def cull_with_angle(H, threshold, *args, units = 'radians', **kwargs):
     return new_H , raw_list
 
 def assign_topics(angle_threshold, h_file, dt_file, *args,
+                  remove_constant = True,
                   max_topics = 3, 
                   invalid_method = 'max_value',
                   final_norm = 'l1',
@@ -93,64 +94,68 @@ def assign_topics(angle_threshold, h_file, dt_file, *args,
     #The point of this scaling is that large values should correspond to good data (even though the angle between two parallel vectors is actually zero)
     doc_topic_angles = np.pi/2 - np.arccos(doc_topic_mat)
     
-    #Creating an effective, discrete probability distribution
-    data = np.ravel(doc_topic_angles)
-    
-    #Identifying MAD of nonzero values to define min power for histogram
-    nonzero_data = np.log10(data[data>0])
-    
-    median = np.nanmedian(nonzero_data)
-    mad = np.nanmedian(abs(nonzero_data-median))
-    
-    min_entropy_power = median - min_entropy_mad*mad
-    
-    #Filtering data so small values are removed - only considering the entropy of possibly valid angles
-    data = data[data >= 10**(min_entropy_power)]
-    data = np.log10(data)
-    
-    
-    #Using entropy to identify a cutoff value   
-    log_bins = np.linspace(min_entropy_power, np.log10(np.pi/2), num_entropy_bins)
-    
-    #Creating the histogram of data
-    total_hist, xvals = np.histogram(data, bins = log_bins)
-    
-    #Normalizing the calculated histogram    
-    norm_hist = total_hist/total_hist.sum()
-    
-    #Removing empty bins so that the log function in entropy won't throw errors
-    nonzero_indices = np.where(norm_hist>0)[0]
-    norm_hist = norm_hist[nonzero_indices]
-    x_vals = log_bins[nonzero_indices]
-    
-    #Calculating entropy (i.e. the expectation value of probability)
-    entropy = sum(-norm_hist*np.log2(norm_hist))
-    
-    #Calculating the information content of each bin and smoothing
-    information = -np.log2(norm_hist)
-    information = gaussian_filter1d(information, entropy_smoothing_sigma)
-    
-    #The bin of the cutoff where information becomes greater than the entropy
-    cutoff_index = np.where(information <= entropy)[0].max() +1
-    
-    #The angle value of the cutoff
-    angle_cutoff = 10**(x_vals[cutoff_index])
-    
-    #Creating final doc-topic matrix:
-
-    #Subtracing the cutoff value from each weight
-    doc_topic_angles -= angle_cutoff
-    
-    #Identifying indices where all angles are negative (no information on topic assignment)
-    if invalid_method == 'max_value':
-        invalid_docs = np.where(np.max(doc_topic_angles, axis =1)<=0)[0]
+    #Will remove a constant value based on entropy. Empirically, however, this tends to be low so it doesn't seem to contribute much. 
+    #It is likely needed for larger numbers of topics.
+    if remove_constant:
         
-        for doc in invalid_docs:
-            max_topic = np.where(doc_topic_angles[doc] == doc_topic_angles[doc].max())[0]
-            doc_topic_angles[doc, max_topic] = 1
+        #Creating an effective, discrete probability distribution
+        data = np.ravel(doc_topic_angles)
         
-    else:
-        pass
+        #Identifying MAD of nonzero values to define min power for histogram
+        nonzero_data = np.log10(data[data>0])
+        
+        median = np.nanmedian(nonzero_data)
+        mad = np.nanmedian(abs(nonzero_data-median))
+        
+        min_entropy_power = median - min_entropy_mad*mad
+        
+        #Filtering data so small values are removed - only considering the entropy of possibly valid angles
+        data = data[data >= 10**(min_entropy_power)]
+        data = np.log10(data)
+        
+        
+        #Using entropy to identify a cutoff value   
+        log_bins = np.linspace(min_entropy_power, np.log10(np.pi/2), num_entropy_bins)
+        
+        #Creating the histogram of data
+        total_hist, xvals = np.histogram(data, bins = log_bins)
+        
+        #Normalizing the calculated histogram    
+        norm_hist = total_hist/total_hist.sum()
+        
+        #Removing empty bins so that the log function in entropy won't throw errors
+        nonzero_indices = np.where(norm_hist>0)[0]
+        norm_hist = norm_hist[nonzero_indices]
+        x_vals = log_bins[nonzero_indices]
+        
+        #Calculating entropy (i.e. the expectation value of probability)
+        entropy = sum(-norm_hist*np.log2(norm_hist))
+        
+        #Calculating the information content of each bin and smoothing
+        information = -np.log2(norm_hist)
+        information = gaussian_filter1d(information, entropy_smoothing_sigma)
+        
+        #The bin of the cutoff where information becomes greater than the entropy
+        cutoff_index = np.where(information <= entropy)[0].max() +1
+        
+        #The angle value of the cutoff
+        angle_cutoff = 10**(x_vals[cutoff_index])
+        
+        #Creating final doc-topic matrix:
+    
+        #Subtracing the cutoff value from each weight
+        doc_topic_angles -= angle_cutoff
+        
+        #Identifying indices where all angles are negative (no information on topic assignment)
+        if invalid_method == 'max_value':
+            invalid_docs = np.where(np.max(doc_topic_angles, axis =1)<=0)[0]
+            
+            for doc in invalid_docs:
+                max_topic = np.where(doc_topic_angles[doc] == doc_topic_angles[doc].max())[0]
+                doc_topic_angles[doc, max_topic] = 1
+            
+        else:
+            pass
     
     #Defines the rank of each angle 
     doc_topic_rank = np.argsort(doc_topic_angles, axis = 1)[:,::-1]
