@@ -3,12 +3,13 @@
 """
 Created on Thu Oct  3 21:31:48 2019
 
-@author: bill
+@author: Bill Konyk
 
 This contains all the functions needed to execute the main NMF Analysis strategy as contained in the NMF_Analysis class.
+
+The process follows the method described in https://arxiv.org/pdf/1702.07186.pdf
 """
 
-import pickle
 import numpy as np
 import scipy.sparse
 from sklearn.decomposition import NMF
@@ -19,22 +20,81 @@ import scipy
 Modifications to H that ensure each topic is mapped to a unit vector in the term space.
 '''
 def norm_fun(vector):
-    return np.linalg.norm(vector) #Normalizing the vector to have a length of one in topic space.
+    """
+    Calculates the norm of a vector
+    
+    Parameters
+    ----------
+    vector : np array
+        Some vector
+        
+    Returns
+    -------
+    norm : float
+        Norm of the vector
+    """
+    
+    return np.linalg.norm(vector)
 
 def b_mat(H):
+    """
+    Defines the B matrix so that H is normalized to unit length. THis exploits the fact that H B B_inv W = H W
+    Note that B is diagonal, so the inverse is simple to define and calculate
+    
+    Parameters
+    ----------
+    H : np array
+        H matrix from the NMF process
+        
+    Returns
+    -------
+    B : np array
+        B matrix
+    B_inv : np array
+        Inverse B matrix
+    """
+    
     num_topics = np.shape(H)[0]
-    B = np.zeros((num_topics,num_topics), dtype = float)
-    B_inv = np.zeros((num_topics,num_topics), dtype = float)
+    B = np.zeros((num_topics,num_topics), dtype = float) #Create matrices
+    B_inv = np.zeros((num_topics,num_topics), dtype = float) #Create inverse matrix
+    
     for topic in range(num_topics):
         norm = norm_fun(H[topic])
         B[topic,topic] = 1/norm
         B_inv[topic,topic] = norm
+        
     return B, B_inv
 
-'''
-The main function to run NMF on the desired number of topics. 
-'''
-def run_ensemble_NMF_strategy(num_topics, num_folds, num_runs, num_docs, doc_term_matrix):
+
+def run_ensemble_NMF_strategy(num_topics, num_folds, num_runs, doc_term_matrix):
+    
+    """
+    Main function to process text using NMF.
+    This implements the method described in https://arxiv.org/pdf/1702.07186.pdf
+    It also normalizes the H matrix so that each topic has a norm of length 1
+        
+    
+    Parameters
+    ----------
+    num_topics : int
+        Number of topics to generate
+    num_folds : int
+        Number of times to partition the set of documents. In each run one of the folds will randomly be excluded
+    num_runs : int
+        Number of times to run NMF
+    doc_term_matrix : np.array
+        Vectorized document-term matrix from preprocessing
+        
+    Returns
+    -------
+    ensemble_W : sparse matrix
+        Sparse form of the W matrix
+    ensemble_H : sparse matrix
+        Sparse form of the H matrix
+    """
+    
+    #Identify number of documents
+    num_docs = doc_term_matrix.shape[0]
 
     #Defines the number of elements in each fold and ensures that the total sums correctly
     fold_sizes = (num_docs // num_folds) * np.ones(num_folds, dtype=np.int)
@@ -59,7 +119,7 @@ def run_ensemble_NMF_strategy(num_topics, num_folds, num_runs, num_docs, doc_ter
             for id in doc_ids[start:stop]:
                 sample_ids.remove(id)
             
-            #
+            
             sample_doc_ids = []
             for doc_index in sample_ids:
                 sample_doc_ids.append(doc_ids[doc_index])
@@ -93,4 +153,4 @@ def run_ensemble_NMF_strategy(num_topics, num_folds, num_runs, num_docs, doc_ter
         
     print(num_topics, 'th topic analyzed')
     
-    return num_topics, ensemble_W, ensemble_H
+    return ensemble_W, ensemble_H

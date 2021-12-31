@@ -20,8 +20,8 @@ from matplotlib import ticker
 
 from sklearn.cluster import KMeans
 
-from NMF_Analysis.NMF_Analysis_Functions import b_mat
-from NMF_Analysis.NMF_Topic_Analysis_Functions import assign_topics
+from tanagra.NMF_Analysis_Functions import b_mat
+from tanagra.NMF_Topic_Analysis_Functions import assign_topics
 
 
 matplotlib.use('Agg')
@@ -721,7 +721,6 @@ def plot_topic_assignment_scan(plot_folder, data_folder, run_name, h_filenames, 
     
     except FileNotFoundError:
             
-        
         for angle_threshold in angle_list:
             for h_file in h_filenames:
                             
@@ -750,8 +749,8 @@ def plot_topic_assignment_scan(plot_folder, data_folder, run_name, h_filenames, 
                                             ['entropy', 'num_invalid','mean_nonzero_H'], 
                                             ['Entropy', 'Percent Invalid Docs', 'Order of Mag of Mean Nonzero H Values'],
                                             [[],
-                                             [5,10,15,20,25],
-                                             [1,1.5,2,2.5,3]]):
+                                            [5,10,15,20,25],
+                                            [1,1.5,2,2.5,3]]):
         
         x,y,z = df_to_mat(data_df, 'num_topics', 'angle_threshold', z_col)
         
