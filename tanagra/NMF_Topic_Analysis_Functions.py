@@ -208,27 +208,34 @@ def assign_topics(angle_threshold, h_file, dt_file, *args,
         information = gaussian_filter1d(information, entropy_smoothing_sigma)
         
         #The bin of the cutoff where information becomes greater than the entropy
-        cutoff_index = np.where(information <= entropy)[0].max() +1
+        try:
+            cutoff_index = np.where(information <= entropy)[0].max() +1
         
-        #The angle value of the cutoff
-        angle_cutoff = x_vals[cutoff_index]
-        
-        #Identifying the location of the maximum topic for assigning invalid documents (ones with all angles below the threshold) 
-        max_topic_indices = [np.argmax(doc_topic_angles[doc]) for doc in range(doc_topic_angles.shape[0])]    
-        
-        #Subtracing the cutoff value from each weight
-        doc_topic_angles -= angle_cutoff
-        
-        #Removing any negative values
-        doc_topic_angles[doc_topic_angles<0] = 0
+            #The angle value of the cutoff
+            angle_cutoff = x_vals[cutoff_index]
             
-        #Identifying indices where all angles are negative (no information on topic assignment)
-        invalid_docs = np.where(np.max(doc_topic_angles, axis =1)<=0)[0]  
-        
-        #Assigns the invalid doc to the topic that best matches (highest angle)
-        for doc in invalid_docs:
-            max_topic = max_topic_indices[doc]
-            doc_topic_angles[doc, max_topic] = 1
+            #Identifying the location of the maximum topic for assigning invalid documents (ones with all angles below the threshold) 
+            max_topic_indices = [np.argmax(doc_topic_angles[doc]) for doc in range(doc_topic_angles.shape[0])]    
+            
+            #Subtracing the cutoff value from each weight
+            doc_topic_angles -= angle_cutoff
+            
+            #Removing any negative values
+            doc_topic_angles[doc_topic_angles<0] = 0
+                
+            #Identifying indices where all angles are negative (no information on topic assignment)
+            invalid_docs = np.where(np.max(doc_topic_angles, axis =1)<=0)[0]  
+            
+            #Assigns the invalid doc to the topic that best matches (highest angle)
+            for doc in invalid_docs:
+                max_topic = max_topic_indices[doc]
+                doc_topic_angles[doc, max_topic] = 1
+                
+        except Exception as e:
+            print('    Angle cutoff failed with exception {}'.format(e))
+            
+            invalid_docs = []
+            entropy = 0
             
     else:
         invalid_docs = []
@@ -455,6 +462,7 @@ def generate_topic_assignments(topic_name_df, doc_term_mat, vocab, doc_topic_mat
         
     
     num_topics = doc_topic_mat.shape[1]
+    
     
     data = {}
     data['doc_id'] = [doc for doc in range(doc_term_mat.shape[0])]
