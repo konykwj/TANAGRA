@@ -20,6 +20,8 @@ from matplotlib import ticker
 
 from sklearn.cluster import KMeans
 
+import sklearn.preprocessing
+
 from tanagra.NMF_Analysis_Functions import b_mat
 from tanagra.NMF_Topic_Analysis_Functions import assign_topics
 
@@ -45,28 +47,101 @@ def get_top_values( all_terms, H, topic_index, top ):
         top_values.append(H[topic_index,term_value])
     return top_values
 
-def calculate_self_coherence(num_topics, verbosity_list, w2v_model, H, vocab):
+
+
+def build_s_mat(t_vec, w2v_model, vocab):
+    
+    w2v_dims = w2v_model.wv.vectors[0].shape[0]
+
+    nonzero_indices = np.where(t_vec > 1E-7)[0]
+    
+    topic_vocab = [vocab[term_index] for term_index in nonzero_indices]
+    
+    s_mat = np.zeros((len(topic_vocab), w2v_dims))
+
+    for term_row, word in enumerate(topic_vocab):
+        
+        s_mat[term_row] = w2v_model.wv[word]
+        
+    s_mat = sklearn.preprocessing.normalize(s_mat, 'l2', axis = 1)
+
+    s_mat = s_mat.dot(s_mat.T)
+    s_mat[s_mat >= 1] = .999999999999999999999
+
+    #Calculating angles and scaling to pi
+    s_mat = abs(np.pi - np.arccos(s_mat))/(np.pi)
+        
+    new_t_vec = t_vec[nonzero_indices]
+    
+    return new_t_vec, s_mat
+
+
+def calculate_self_coherence(w2v_model, vocab, H):
     #This provides a list of the coherence for each topic
     
-    term_rankings = []
-    for q_topic in range(num_topics):
-        term_rankings.append(get_descriptor( vocab, H, q_topic, verbosity_list[q_topic])) 
+    num_topics = H.shape[0]
     
+    #Creating element to hold self-coherence values
     self_coh = np.zeros([num_topics])
     
-    for topic_i in range(len(term_rankings)):
-        terms = term_rankings[topic_i]
-        pairs = []
-        for p in range(len(terms)):
-            for q in range(p+1):
-                pairs.append((terms[p],terms[q]))
-                
-        pair_scores =[]
-        for topic_ind in range(len(pairs)):
-            pair_scores.append(w2v_model.wv.similarity(pairs[topic_ind][0], pairs[topic_ind][1]) )
-        self_coh[topic_i] = np.mean(pair_scores)
-    
+    #Averaging using the topic values as weights.
+    #Note that element-wise multiplication is employed to speed up processing over direct matrix multiplication
+    for topic in range(num_topics):
+            
+        t_vec = H[topic, :]    
+        
+        t_vec = H[topic, :]    
+        
+        t_vec, s_mat = build_s_mat(t_vec, w2v_model, vocab)
+        
+        w_mat = np.ones(s_mat.shape)
+        
+        #Multipliying by columns
+        w_mat = t_vec*w_mat
+        
+        #Transposing to multiply
+        w_mat = np.transpose(t_vec*w_mat.T)
+        
+        #Calculating all the weighted averages
+        total_weight = np.sum(w_mat)
+        individual_weights = np.sum(s_mat*w_mat)
+                        
+        #Calculating the final weighted average        
+        self_coh[topic] = individual_weights / total_weight
+        
+        #Clearing from memory
+        w_mat  = 0
+        s_mat = 0
+        t_vec = 0
+
     return self_coh
+
+#Old function for self-coherence, new one provides a full weighted self-coherence value
+# def calculate_self_coherence(num_topics, verbosity_list, w2v_model, H, vocab):
+#     #This provides a list of the coherence for each topic
+    
+#     term_rankings = []
+#     for q_topic in range(num_topics):
+#         term_rankings.append(get_descriptor( vocab, H, q_topic, verbosity_list[q_topic])) 
+    
+#     self_coh = np.zeros([num_topics])
+    
+#     for topic_i in range(len(term_rankings)):
+#         terms = term_rankings[topic_i]
+#         pairs = []
+#         for p in range(len(terms)):
+#             for q in range(p+1):
+#                 pairs.append((terms[p],terms[q]))
+                
+#         pair_scores =[]
+#         for topic_ind in range(len(pairs)):
+#             pair_scores.append(w2v_model.wv.similarity(pairs[topic_ind][0], pairs[topic_ind][1]) )
+#         self_coh[topic_i] = np.mean(pair_scores)
+    
+#     return self_coh
+
+
+
 
 
 def create_topic(word_list, n):
@@ -182,43 +257,36 @@ def plot_self_coherence(run_name, data_folder, plot_folder, h_filenames, w2v_fil
     
     [doc_term_mat, vocab] = pickle.load(open(doc_term_filename, "rb" ) )
     
-    
-    try:
-        coherence_df = pickle.load(open(data_folder+'{}_self_coherence.pkl'.format(run_name), 'rb'))
 
-    except FileNotFoundError:
+    scatter_topic_list = []
+    scatter_coh = []
+    scatter_topic_nbr_list = []
         
-        #Creating lists to hold the topic quality metrics
+    for p, h_file in enumerate(h_filenames):
         
-        scatter_topic_list = []
-        scatter_coh = []
-        scatter_topic_nbr_list = []
+        (final_weights, H, entropy, invalid_docs) = pickle.load(open(h_file,'rb'))
+        num_topics = H.shape[0]
+                    
+        # verbosity_list = verbosity(H, verbosity_value)
+        # verbosity_list = [num_terms for term in range(num_topics)]
+        
+        self_coh = calculate_self_coherence(w2v_model, vocab, H)
+        
+        topic_nbr = 1
+        for coh in self_coh:
+            scatter_coh.append(coh)
+            scatter_topic_list.append(num_topics)
+            scatter_topic_nbr_list.append(topic_nbr)
+            topic_nbr += 1
             
-        for p, h_file in enumerate(h_filenames):
-            
-            (final_weights, H, entropy, invalid_docs) = pickle.load(open(h_file,'rb'))
-            num_topics = H.shape[0]
-                        
-            # verbosity_list = verbosity(H, verbosity_value)
-            verbosity_list = [num_terms for term in range(num_topics)]
-            
-            self_coh = calculate_self_coherence(num_topics, verbosity_list, w2v_model, H, vocab)
-            
-            topic_nbr = 1
-            for coh in self_coh:
-                scatter_coh.append(coh)
-                scatter_topic_list.append(num_topics)
-                scatter_topic_nbr_list.append(topic_nbr)
-                topic_nbr += 1
-                
-            print('Coherence Plots', p/len(h_filenames)*100.,' % complete')
-        
-        
-        coherence_df = pd.DataFrame({'k_topics':scatter_topic_list,
-                                     'topic_nbr':scatter_topic_nbr_list,
-                                     'coherence':scatter_coh})
-        
-        pickle.dump(coherence_df,open(data_folder+'{}_self_coherence.pkl'.format(run_name), 'wb'))
+        print('Coherence Plots', p/len(h_filenames)*100.,' % complete')
+    
+    
+    coherence_df = pd.DataFrame({'k_topics':scatter_topic_list,
+                                 'topic_nbr':scatter_topic_nbr_list,
+                                 'coherence':scatter_coh})
+    
+    pickle.dump(coherence_df,open(data_folder+'{}_self_coherence.pkl'.format(run_name), 'wb'))
         
     '''
     Plotting self coherence
@@ -231,45 +299,46 @@ def plot_self_coherence(run_name, data_folder, plot_folder, h_filenames, w2v_fil
                       'coherence', 
                       'Topic Number',
                       'Topic Coherence', 
-                      ['#CC4F1B', '#CC4F1B', '#FF9848'])
+                       ['#CC4F1B', '#CC4F1B', '#FF9848'])
               
 def plot_verbosity(run_name, data_folder, plot_folder, h_filenames, *args, 
                                verbosity_value = .1, filetype = '.png', **kwargs):
     
     print('Plotting Verbosity')
     
-    try:
+    # try:
         
-        #Creating dataframes for future use
-        verbosity_df = pickle.load(open(data_folder+'{}_verbosity.pkl'.format(run_name), 'rb'))
+    #     #Creating dataframes for future use
+    #     verbosity_df = pickle.load(open(data_folder+'{}_verbosity.pkl'.format(run_name), 'rb'))
 
-    except FileNotFoundError:
+
+    # except FileNotFoundError:
         
-        #Creating lists to hold the topic quality metrics
+    #Creating lists to hold the topic quality metrics
+    
+    verbosity_vals = []
+    verbosity_num_topics = []
+    verbosity_topic_nbr = []
         
-        verbosity_vals = []
-        verbosity_num_topics = []
-        verbosity_topic_nbr = []
-            
-        for p, h_file in enumerate(h_filenames):
-            
-            (final_weights, H, entropy, invalid_docs) = pickle.load(open(h_file,'rb'))
-                        
-            verbosity_list = verbosity(H, verbosity_value) #convert verbosity to angle
-            
-            for topic_nbr, verb in enumerate(verbosity_list):
-                print('**************')
-                print(verb, topic_nbr)
-                verbosity_vals.append(verb)
-                verbosity_num_topics.append(H.shape[0])
-                verbosity_topic_nbr.append(topic_nbr)
-                topic_nbr += 1
-            
+    for p, h_file in enumerate(h_filenames):
         
-        #Creating dataframes for future use
-        verbosity_df = pd.DataFrame({'k_topics':verbosity_num_topics,
-                                     'topic_nbr':verbosity_topic_nbr,
-                                     'verbosity':verbosity_vals})
+        (final_weights, H, entropy, invalid_docs) = pickle.load(open(h_file,'rb'))
+                    
+        verbosity_list = verbosity(H, verbosity_value) #convert verbosity to angle
+        
+        for topic_nbr, verb in enumerate(verbosity_list):
+            print('**************')
+            print(verb, topic_nbr)
+            verbosity_vals.append(verb)
+            verbosity_num_topics.append(H.shape[0])
+            verbosity_topic_nbr.append(topic_nbr)
+            topic_nbr += 1
+        
+    
+    #Creating dataframes for future use
+    verbosity_df = pd.DataFrame({'k_topics':verbosity_num_topics,
+                                 'topic_nbr':verbosity_topic_nbr,
+                                 'verbosity':verbosity_vals})
         
         # pickle.dump(verbosity_df, open(data_folder+'{}_verbosity.pkl'.format(run_name), 'wb'))
     
