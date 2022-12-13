@@ -76,9 +76,13 @@ class NMF_Analysis:
     
     #This method performs the preprocessing steps            
     def vectorize_data(self, text_df, *args, custom_stopwords = [], text_key = 'text', find_bigrams = True,
+                       find_ngrams = 2,
                         gensim_min_count= 10, gensim_threshold = 20, 
                         remove_text = False,
-                        tfidf_min_word_count = 4, **kwargs):
+                        create_w2v_model = True, 
+                        tfidf_min_word_count = 4, 
+                        vec_type = 'tfidf', 
+                        **kwargs):
         
         """
         Converts text data from a pandas dataframe containing the raw texts to analyze into a vectorized, machine friendly form.
@@ -108,6 +112,8 @@ class NMF_Analysis:
             If set true will remove the raw text from the output dataframe. Prevents duplication of data if the dataset is large
         tfidf_min_word_count : int
             Will remove words appearing fewer times than this value
+        vec_type: str
+            Type of vectorization to use. Options are "info" or "tfidf"
         
         
         Returns
@@ -133,13 +139,20 @@ class NMF_Analysis:
             if find_bigrams == True: #if find_bigrams is true this will attempt to identify bigrams in the text and will replace the original word with the bigram
                 corpus, gensim_sentences = nppf.identify_bigrams(corpus, gensim_min_count, gensim_threshold)
                 print('    Bigrams identified')
+                
+                if find_ngrams > 2:
+                    for n_gram in range(find_ngrams - 2):
+                        corpus, gensim_sentences = nppf.identify_bigrams(corpus, gensim_min_count, gensim_threshold)
+                        print('    {}-grams identified'.format(n_gram + 3))
+                
             else:
                 gensim_sentences = nppf.create_gensim_sentences(corpus) #converts the dataset to a tokenized form for use with gensim
-                
-            nppf.create_w2v_skipgram_model(gensim_sentences, self.w2v_filename, 1) #this will create and save a skipgram word-2-vec model
-            print('    Word2Vec model created')
             
-            nppf.vectorize_corpus(corpus, self.doc_term_filename, tfidf_min_word_count) #this will save a vectorized model of the corpus
+            if create_w2v_model:
+                nppf.create_w2v_skipgram_model(gensim_sentences, self.w2v_filename, 1) #this will create and save a skipgram word-2-vec model
+                print('    Word2Vec model created')
+            
+            nppf.vectorize_corpus(corpus, self.doc_term_filename, tfidf_min_word_count, vec_type = vec_type) #this will save a vectorized model of the corpus
             print('    Corpus vectorized')
             
             text_df['corpus'] = corpus 
@@ -191,7 +204,11 @@ class NMF_Analysis:
         return self.model_data_folder + self.run_name + '_'+str(num_topics).zfill(4) + "_W_ensemble_model.pkl"
       
         
-    def run_analysis(self, num_folds, num_runs):
+    def run_analysis(self, num_folds, num_runs, 
+                     categorical_column = '', 
+                     corpus_df = None,
+                     weight_dict = {},
+                     index_column = 'doc_id'):
         
         """
         Method to run the NMF analysis process
@@ -220,12 +237,22 @@ class NMF_Analysis:
                 
             except FileNotFoundError:
                 
-                ensemble_W, ensemble_H = naf.run_ensemble_NMF_strategy(num_topics, num_folds, num_runs, doc_term_matrix)
+                if len(categorical_column) == 0:
+                
+                    ensemble_W, ensemble_H = naf.run_ensemble_NMF_strategy(num_topics, num_folds, num_runs, doc_term_matrix)
+                    
+                else:
+
+                    ensemble_W, ensemble_H = naf.run_categorical_strategy(num_topics, num_folds, num_runs, doc_term_matrix, 
+                                                                          corpus_df, 
+                                                                          categorical_column,
+                                                                          index_column = index_column,
+                                                                          weight_dict = weight_dict)
                 
                 pickle.dump((num_topics, ensemble_H), open(self.h_filename(num_topics), "wb" ) )
                 pickle.dump(ensemble_W, open(self.w_filename(num_topics), "wb" ) )
 
-                print('NMF Matrices for ', num_topics,' completed.')
+                print('     NMF Matrices for ', num_topics,' completed.')
                 
                 
     def doc_topic_filename(self, num_topics):
@@ -407,5 +434,10 @@ class NMF_Analysis:
         return assigned_df
     
         
+    
+    
+def combine_multiple_classes(new_class_dict, existing_class_dict):
+    
+    pass
         
                 
